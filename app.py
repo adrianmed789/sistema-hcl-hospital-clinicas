@@ -9,7 +9,6 @@ import zipfile
 import io
 
 # --- Configuración de la página de Streamlit ---
-# Se establece el layout en "wide" para aprovechar más el espacio de la pantalla.
 st.set_page_config(layout="wide", page_title="Sistema de Gestión de Documentos Médicos")
 
 # --- Funciones Auxiliares ---
@@ -28,7 +27,13 @@ def _crear_estructura_directorios(directorio_base, plantillas_dir, excel_file):
         if not os.path.exists(excel_file):
             df = pd.DataFrame(columns=[
                 'Fecha_Registro', 'Nombre_Completo', 'Num_Historia', 'Num_Registro',
-                'Edad', 'Servicio', 'Diagnostico', 'Fecha_Internacion', 'Ruta_Carpeta'
+                'Edad', 'Servicio', 'Diagnostico', 'Fecha_Internacion',
+                'Ocupacion', 'Estado_Civil', 'Genero', 'Residencia', 'Procedencia',
+                'Domicilio', # Nueva columna para el historial
+                'Residente_La_Paz',
+                'Nombre_Referencia1', 'Relacion_Referencia1', 'Telefono_Referencia1', # Nuevas columnas para el historial
+                'Nombre_Referencia2', 'Relacion_Referencia2', 'Telefono_Referencia2', # Nuevas columnas para el historial
+                'Ruta_Carpeta'
             ])
             df.to_excel(excel_file, index=False)
         return True
@@ -44,7 +49,8 @@ def _actualizar_edad(fecha_nacimiento_str):
             dia, mes = int(d), int(m)
             año = int(y)
             if año < 100: # Asume años de 2 dígitos (ej. 98 -> 1998, 05 -> 2005)
-                año += 2000 if año < date.today().year % 100 + 1 else 1900 # Mejor heurística para el siglo
+                año_actual_2_dig = date.today().year % 100
+                año += 1900 if año > año_actual_2_dig else 2000
             nac = date(año, mes, dia)
             hoy = date.today()
             edad = hoy.year - nac.year - ((hoy.month, hoy.day) < (nac.month, nac.day))
@@ -70,11 +76,10 @@ def _actualizar_num_registro(fecha_nacimiento_str):
         st.session_state.num_registro = ""
 
 def _replace_placeholders(doc, data):
-    """Reemplaza marcadores en .docx con los datos proporcionados, usando Arial 10."""
-    def set_arial_10(r):
-        r.font.name = 'Arial'
-        r.font.size = Pt(10)
-
+    """
+    Reemplaza marcadores en .docx con los datos proporcionados.
+    Intenta preservar el formato original de los runs.
+    """
     # Párrafos
     for p in doc.paragraphs:
         for key, val in data.items():
@@ -82,7 +87,6 @@ def _replace_placeholders(doc, data):
                 for run in p.runs:
                     if key in run.text:
                         run.text = run.text.replace(key, str(val))
-                        set_arial_10(run)
     # Tablas
     for tbl in doc.tables:
         for row in tbl.rows:
@@ -93,7 +97,6 @@ def _replace_placeholders(doc, data):
                             for run in p.runs:
                                 if key in run.text:
                                     run.text = run.text.replace(key, str(val))
-                                    set_arial_10(run)
     # Encabezados y pies de página
     for sec in doc.sections:
         for hf in (sec.header, sec.footer):
@@ -103,7 +106,6 @@ def _replace_placeholders(doc, data):
                         for run in p.runs:
                             if key in run.text:
                                 run.text = run.text.replace(key, str(val))
-                                set_arial_10(run)
 
 def _guardar_en_excel(excel_file, ruta_carpeta_simulada):
     """Guarda la entrada del paciente en el historial Excel."""
@@ -119,7 +121,20 @@ def _guardar_en_excel(excel_file, ruta_carpeta_simulada):
             'Servicio': st.session_state.servicio,
             'Diagnostico': st.session_state.diagnosticos,
             'Fecha_Internacion': st.session_state.fecha_internacion.strftime("%d/%m/%Y"),
-            'Ruta_Carpeta': ruta_carpeta_simulada # Esto es solo un nombre de carpeta simulado, no una ruta real en el servidor.
+            'Ocupacion': st.session_state.ocupacion,
+            'Estado_Civil': st.session_state.estado_civil,
+            'Genero': st.session_state.genero,
+            'Residencia': st.session_state.residencia,
+            'Procedencia': st.session_state.procedencia,
+            'Domicilio': st.session_state.domicilio, # NUEVO
+            'Residente_La_Paz': "Sí" if st.session_state.es_residente_la_paz else "No",
+            'Nombre_Referencia1': st.session_state.n_referencia1, # NUEVO
+            'Relacion_Referencia1': st.session_state.referencia1,
+            'Telefono_Referencia1': st.session_state.telefono_referencia1, # NUEVO
+            'Nombre_Referencia2': st.session_state.n_referencia2, # NUEVO
+            'Relacion_Referencia2': st.session_state.referencia2,
+            'Telefono_Referencia2': st.session_state.telefono_referencia2, # NUEVO
+            'Ruta_Carpeta': ruta_carpeta_simulada
         }
         df = pd.concat([df, pd.DataFrame([fila])], ignore_index=True)
         df.to_excel(excel_file, index=False)
@@ -139,8 +154,17 @@ def _limpiar_campos():
     st.session_state.num_registro = ""
     st.session_state.ocupacion = ""
     st.session_state.estado_civil = ""
+    st.session_state.residencia = ""
+    st.session_state.genero = "Masculino"
+    st.session_state.procedencia = ""
+    st.session_state.domicilio = "" # NUEVO
+    st.session_state.es_residente_la_paz = False
+    st.session_state.n_referencia1 = ""
     st.session_state.referencia1 = ""
+    st.session_state.telefono_referencia1 = "" # NUEVO
+    st.session_state.n_referencia2 = ""
     st.session_state.referencia2 = ""
+    st.session_state.telefono_referencia2 = "" # NUEVO
     st.session_state.diagnosticos = ""
     st.session_state.diag_recetas_labs = ""
     st.session_state.cie10 = ""
@@ -149,10 +173,8 @@ def _limpiar_campos():
     st.session_state.indicaciones = ""
     st.session_state.fecha_internacion = date.today()
 
-    # Deseleccionar todas las plantillas
     for key in list(st.session_state.plantillas_vars.keys()):
         st.session_state.plantillas_vars[key] = False
-    # Reiniciar también los checkboxes de "Seleccionar todos" por categoría
     for key in list(st.session_state.keys()):
         if key.startswith("select_all_"):
             st.session_state[key] = False
@@ -176,7 +198,7 @@ def _generar_documentos_callback(directorio_base, plantillas_dir, excel_file):
     # Obtener plantillas seleccionadas
     seleccionadas = []
     for k, v in st.session_state.plantillas_vars.items():
-        if v: # Si el checkbox está seleccionado (valor True)
+        if v:
             folder, filename = k.split(':', 1)
             seleccionadas.append({'carpeta': folder, 'archivo': filename})
 
@@ -198,8 +220,17 @@ def _generar_documentos_callback(directorio_base, plantillas_dir, excel_file):
         '{{NUM_REGISTRO}}': st.session_state.num_registro,
         '{{OCUPACION}}': st.session_state.ocupacion,
         '{{ESTADO_CIVIL}}': st.session_state.estado_civil,
+        '{{RESIDENCIA}}': st.session_state.residencia,
+        '{{GENERO}}': st.session_state.genero,
+        '{{PROCEDENCIA}}': st.session_state.procedencia,
+        '{{DOMICILIO}}': st.session_state.domicilio, # NUEVO MARCADO
+        '{{ES_RESIDENTE_LA_PAZ}}': "Sí" if st.session_state.es_residente_la_paz else "No",
+        '{{N_REFERENCIA1}}': st.session_state.n_referencia1,
         '{{REFERENCIA1}}': st.session_state.referencia1,
+        '{{TELEFONO_REFERENCIA1}}': st.session_state.telefono_referencia1, # NUEVO MARCADO
+        '{{N_REFERENCIA2}}': st.session_state.n_referencia2,
         '{{REFERENCIA2}}': st.session_state.referencia2,
+        '{{TELEFONO_REFERENCIA2}}': st.session_state.telefono_referencia2, # NUEVO MARCADO
         '{{DIAGNOSTICOS}}': st.session_state.diagnosticos,
         '{{DIAG_RECETAS_LABS}}': st.session_state.diag_recetas_labs,
         '{{CIE10}}': st.session_state.cie10,
@@ -212,11 +243,10 @@ def _generar_documentos_callback(directorio_base, plantillas_dir, excel_file):
     nombre_carpeta_raw = f"{nombre_comp} - {st.session_state.num_historia} - {st.session_state.diagnosticos.strip()}"
     nombre_carpeta_sanitized = re.sub(r'[<>:"/\\|?*]', '_', nombre_carpeta_raw)
 
-    generados_buffer = io.BytesIO() # Buffer en memoria para el archivo ZIP
+    generados_buffer = io.BytesIO()
     with zipfile.ZipFile(generados_buffer, 'w') as zf:
         generados, errores = [], []
 
-        # Procesar cada plantilla seleccionada
         for v in seleccionadas:
             ruta_plantilla = os.path.join(plantillas_dir, v['carpeta'], v['archivo'])
             if os.path.exists(ruta_plantilla):
@@ -226,10 +256,9 @@ def _generar_documentos_callback(directorio_base, plantillas_dir, excel_file):
                     base = v['archivo'].replace('.docx', '')
                     fname = f"{base} - {nombre_comp}.docx"
 
-                    # Guardar el documento modificado en un buffer y luego añadirlo al ZIP
                     doc_buffer = io.BytesIO()
                     doc.save(doc_buffer)
-                    doc_buffer.seek(0) # Rebovinar el buffer para leer su contenido
+                    doc_buffer.seek(0)
                     zf.writestr(os.path.join(nombre_carpeta_sanitized, fname), doc_buffer.getvalue())
                     generados.append({'cat': v['carpeta'], 'file': fname})
                 except Exception as e:
@@ -238,10 +267,8 @@ def _generar_documentos_callback(directorio_base, plantillas_dir, excel_file):
                 errores.append(f"Plantilla no encontrada: {v['archivo']}")
 
     if generados:
-        # Guardar metadatos en el historial de Excel (la ruta es simbólica)
         _guardar_en_excel(excel_file, nombre_carpeta_sanitized)
         
-        # Mensaje de éxito
         msg = f"✅ Se generaron {len(generados)} documentos. Haga clic en 'Descargar Documentos' para obtener el archivo ZIP.\n"
         por_cat = {}
         for d in generados:
@@ -255,20 +282,18 @@ def _generar_documentos_callback(directorio_base, plantillas_dir, excel_file):
         
         st.success(msg)
 
-        # Ofrecer la descarga del archivo ZIP
-        generados_buffer.seek(0) # Rebovinar el buffer del ZIP
+        generados_buffer.seek(0)
         st.download_button(
-            label=f"Descargar Documentos ({len(generados)})",
+            label=f"Descargar Documentos Generados ({len(generados)})",
             data=generados_buffer.getvalue(),
             file_name=f"{nombre_carpeta_sanitized}.zip",
             mime="application/zip",
             key="download_docs_button"
         )
         
-        # Ofrecer limpiar campos después de generar
         if st.button("Limpiar campos para nuevo paciente", key="clear_after_gen"):
             _limpiar_campos()
-            st.rerun() # Reruns the app to show cleared fields
+            st.rerun()
     else:
         msg = "❌ No se generaron documentos."
         if errores:
@@ -293,8 +318,17 @@ def main():
         st.session_state.num_registro = ""
         st.session_state.ocupacion = ""
         st.session_state.estado_civil = ""
+        st.session_state.residencia = ""
+        st.session_state.genero = "Masculino"
+        st.session_state.procedencia = ""
+        st.session_state.domicilio = "" # NUEVO
+        st.session_state.es_residente_la_paz = False
+        st.session_state.n_referencia1 = ""
         st.session_state.referencia1 = ""
+        st.session_state.telefono_referencia1 = "" # NUEVO
+        st.session_state.n_referencia2 = ""
         st.session_state.referencia2 = ""
+        st.session_state.telefono_referencia2 = "" # NUEVO
         st.session_state.diagnosticos = ""
         st.session_state.diag_recetas_labs = ""
         st.session_state.cie10 = ""
@@ -302,11 +336,10 @@ def main():
         st.session_state.observaciones = ""
         st.session_state.indicaciones = ""
         st.session_state.fecha_internacion = date.today()
-        st.session_state.plantillas_vars = {} # Almacena el estado de los checkboxes de plantillas
+        st.session_state.plantillas_vars = {}
 
-    # Asegurarse de que la estructura de directorios y el archivo Excel existan
     if not _crear_estructura_directorios(directorio_base, plantillas_dir, excel_file):
-        st.stop() # Detener la aplicación si la configuración inicial falla
+        st.stop()
 
     st.title("Sistema de Gestión de Documentos Médicos")
 
@@ -317,7 +350,6 @@ def main():
         with col1:
             st.text_input("Nombres:", key="nombres")
             st.text_input("Apellido Paterno:", key="apellido_paterno")
-            # El on_change llama a las funciones de actualización de edad y registro
             st.text_input("Fecha Nacimiento (DD/MM/YY):", key="fecha_nacimiento_str",
                            on_change=lambda: (_actualizar_edad(st.session_state.fecha_nacimiento_str),
                                               _actualizar_num_registro(st.session_state.fecha_nacimiento_str)),
@@ -325,13 +357,23 @@ def main():
             st.date_input("Fecha Internación:", key="fecha_internacion", value=st.session_state.fecha_internacion, format="DD/MM/YYYY")
             st.text_input("N° Historia Clínica:", key="num_historia")
             st.text_input("Ocupación:", key="ocupacion")
-            st.text_input("Referencia 1:", key="referencia1", help="Nombre y parentesco de la primera referencia")
+            st.text_input("Estado Civil:", key="estado_civil")
+            st.text_input("Residencia:", key="residencia", help="Localidad o ciudad de residencia (ej. La Paz, El Alto)")
+            st.text_input("Domicilio:", key="domicilio", help="Dirección completa del domicilio del paciente (calle, número, zona).") # NUEVO
+            st.text_input("Nombre Referencia 1:", key="n_referencia1", help="Nombre completo de la primera persona de referencia")
+            st.text_input("Referencia 1 (Parentesco/Relación):", key="referencia1", help="Parentesco o relación de la referencia 1 con el paciente")
+            st.text_input("Teléfono Referencia 1:", key="telefono_referencia1", help="Número de teléfono de la referencia 1") # NUEVO
+
         with col2:
             st.text_input("Apellido Materno:", key="apellido_materno")
-            st.text_input("Edad:", key="edad", disabled=True, help="Calculada automáticamente") # Deshabilitado porque es calculado
-            st.text_input("N° Registro:", key="num_registro", disabled=True, help="Calculado automáticamente (DDMMAA)") # Deshabilitado porque es calculado
-            st.text_input("Estado Civil:", key="estado_civil")
-            st.text_input("Referencia 2:", key="referencia2", help="Nombre y parentesco de la segunda referencia")
+            st.text_input("Edad:", key="edad", disabled=True, help="Calculada automáticamente")
+            st.text_input("N° Registro:", key="num_registro", disabled=True, help="Calculado automáticamente (DDMMAA)")
+            st.selectbox("Género:", options=["Masculino", "Femenino", "Otro"], key="genero", help="Género del paciente")
+            st.text_input("Procedencia:", key="procedencia", help="Lugar de donde proviene el paciente (si es diferente a residencia)")
+            st.checkbox("Residente en La Paz:", key="es_residente_la_paz", help="Marque si el paciente reside en La Paz")
+            st.text_input("Nombre Referencia 2:", key="n_referencia2", help="Nombre completo de la segunda persona de referencia")
+            st.text_input("Referencia 2 (Parentesco/Relación):", key="referencia2", help="Parentesco o relación de la referencia 2 con el paciente")
+            st.text_input("Teléfono Referencia 2:", key="telefono_referencia2", help="Número de teléfono de la referencia 2") # NUEVO
 
 
     # --- Sección de DATOS CLÍNICOS ---
@@ -355,7 +397,6 @@ def main():
     # --- Sección de SELECCIÓN DE PLANTILLAS ---
     st.header("4. Selección de Plantillas")
     
-    # Función para renderizar la sección de selección de plantillas
     def _render_plantillas_selection():
         categorias = [
             ("📋 Consulta", "Consulta"),
@@ -366,7 +407,6 @@ def main():
             ("📊 Informes", "Informes")
         ]
         
-        # Botón para actualizar la lista de plantillas (re-escanea el directorio)
         st.button("🔄 Actualizar Lista de Plantillas", key="refresh_templates", help="Vuelve a escanear la carpeta PLANTILLAS para nuevas plantillas.")
 
         template_found = False
@@ -379,10 +419,8 @@ def main():
                         template_found = True
                         st.subheader(title)
                         
-                        # Checkbox "Seleccionar todos" para la categoría
                         select_all_key = f"select_all_{folder}"
                         
-                        # Determinar si todos los sub-checkboxes de esta categoría están seleccionados
                         all_selected_in_category = True
                         for doc in docs:
                             key = f"{folder}:{doc}"
@@ -390,39 +428,31 @@ def main():
                                 all_selected_in_category = False
                                 break
                         
-                        # Asegurarse de que el estado inicial del checkbox "Seleccionar todos" refleje la realidad
                         if select_all_key not in st.session_state:
                             st.session_state[select_all_key] = all_selected_in_category
                         else:
-                            # Si el usuario ya lo había cambiado, mantenemos su elección, a menos que el estado actual difiera
-                            # Esto es para evitar que se desmarque si se deselecciona uno, y se mantenga marcado si se seleccionan todos manualmente
                             if st.session_state[select_all_key] != all_selected_in_category:
                                 st.session_state[select_all_key] = all_selected_in_category
                         
-                        # Callback para el checkbox "Seleccionar todos"
                         def toggle_category(category_folder):
-                            # Al hacer clic en "Seleccionar todos", actualiza todos los checkboxes individuales
                             for doc_name in os.listdir(os.path.join(plantillas_dir, category_folder)):
                                 if doc_name.endswith('.docx') and not doc_name.startswith('~'):
                                     key = f"{category_folder}:{doc_name}"
                                     st.session_state.plantillas_vars[key] = st.session_state[f"select_all_{category_folder}"]
-                            st.rerun() # Fuerza una nueva ejecución para que los cambios se reflejen
+                            st.rerun()
 
                         st.checkbox("Seleccionar todos en esta categoría", key=select_all_key, on_change=toggle_category, args=(folder,), help="Marca/desmarca todas las plantillas de esta sección.")
                         
-                        # Renderizar checkboxes individuales en columnas
                         cols_per_row = 2
                         current_cols = st.columns(cols_per_row)
                         col_idx = 0
                         
                         for doc in docs:
                             key = f"{folder}:{doc}"
-                            # Inicializar el estado del checkbox individual si no existe
                             if key not in st.session_state.plantillas_vars:
                                 st.session_state.plantillas_vars[key] = False
                             
                             lbl = doc.replace('.docx', '')
-                            # Función on_change para que, al cambiar un individual, se actualice el "Seleccionar todos" de la categoría
                             def check_category_all_status(current_folder):
                                 all_sub_selected = True
                                 for sub_doc in os.listdir(os.path.join(plantillas_dir, current_folder)):
@@ -432,11 +462,11 @@ def main():
                                             all_sub_selected = False
                                             break
                                 st.session_state[f"select_all_{current_folder}"] = all_sub_selected
-                                st.rerun() # Fuerza una nueva ejecución para actualizar el checkbox "Seleccionar todos"
+                                st.rerun()
                             
                             current_cols[col_idx].checkbox(lbl, key=key, on_change=check_category_all_status, args=(folder,))
                             col_idx = (col_idx + 1) % cols_per_row
-                            if col_idx == 0: # Si se han llenado todas las columnas de una fila, crear nuevas columnas
+                            if col_idx == 0:
                                 current_cols = st.columns(cols_per_row)
 
             if not template_found:
@@ -454,15 +484,14 @@ def main():
             "GENERAR DOCUMENTOS",
             on_click=_generar_documentos_callback,
             args=(directorio_base, plantillas_dir, excel_file),
-            type="primary", # Estilo de botón principal
-            use_container_width=True # Ocupar todo el ancho de la columna
+            type="primary",
+            use_container_width=True
         )
     with col_clear:
         st.button("LIMPIAR CAMPOS", on_click=_limpiar_campos, use_container_width=True)
     with col_hist:
-        # Función para ver el historial, que alterna la visibilidad del dataframe
         def _toggle_historial_visibility():
-            if not st.session_state.get('show_historial', False): # Si no está visible o no existe
+            if not st.session_state.get('show_historial', False):
                 try:
                     if os.path.exists(excel_file):
                         df_historial = pd.read_excel(excel_file)
@@ -481,13 +510,11 @@ def main():
 
         st.button("VER HISTORIAL", on_click=_toggle_historial_visibility, use_container_width=True)
 
-    # Mostrar el historial si el botón "VER HISTORIAL" está activado
     if st.session_state.get('show_historial'):
         st.subheader("Historial de Pacientes")
         if not st.session_state.historial_data.empty:
             st.dataframe(st.session_state.historial_data, use_container_width=True)
             
-            # Ofrecer la descarga del archivo Excel de historial
             excel_buffer = io.BytesIO()
             st.session_state.historial_data.to_excel(excel_buffer, index=False)
             excel_buffer.seek(0)
